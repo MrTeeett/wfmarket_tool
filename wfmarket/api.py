@@ -65,14 +65,23 @@ class WFMClient:
 		return entries
 
 	def sell_orders(self, url_name: str, online_only: bool = False) -> List[dict]:
-		data = self._get(f"/items/{url_name}/orders")
-		orders = data["payload"]["orders"]
+		cache_key = f"orders_raw:{self.platform}:{url_name}"
+		cached_orders = load_cache_entry(cache_key, self.orders_ttl) if self.cache_enabled else None
+		if cached_orders is None:
+			data = self._get(f"/items/{url_name}/orders")
+			raw_orders = []
+			for order in data["payload"]["orders"]:
+				if order.get("order_type") != "sell":
+					continue
+				if not order.get("visible", True):
+					continue
+				raw_orders.append(order)
+			if self.cache_enabled:
+				save_cache_entry(cache_key, raw_orders)
+		else:
+			raw_orders = cached_orders
 		out = []
-		for o in orders:
-			if o.get("order_type") != "sell":
-				continue
-			if not o.get("visible", True):
-				continue
+		for o in raw_orders:
 			if online_only:
 				status = (o.get("user") or {}).get("status")
 				if status not in ("ingame", "online"):
@@ -80,12 +89,29 @@ class WFMClient:
 			out.append(o)
 		return out
 
-	def sell_orders_summary(self, url_name: str, online_only: bool = False, top_n: int = 4) -> Dict[str, Any]:
-		cache_key = f"orders:{self.platform}:{'online' if online_only else 'all'}:{url_name}:{top_n}"
+	def sell_orders_summary(
+		self,
+		url_name: str,
+		online_only: bool = False,
+		top_n: int = 4,
+		mod_rank: Optional[int] = None,
+	) -> Dict[str, Any]:
+		rank_key = "*" if mod_rank is None else str(mod_rank)
+		cache_key = f"orders:{self.platform}:{'online' if online_only else 'all'}:{url_name}:{top_n}:{rank_key}"
 		cached = load_cache_entry(cache_key, self.orders_ttl)
 		if cached is not None:
 			return cached
 		orders = self.sell_orders(url_name, online_only=online_only)
+		if mod_rank is not None:
+			filtered_orders = []
+			for order in orders:
+				order_rank = order.get("mod_rank")
+				if order_rank is None:
+					order_rank = 0
+				if order_rank != mod_rank:
+					continue
+				filtered_orders.append(order)
+			orders = filtered_orders
 		prices = sorted(
 			[o["platinum"] for o in orders if "platinum" in o],
 			key=lambda p: p
@@ -108,6 +134,6 @@ class WFMClient:
 		save_cache_entry(cache_key, summary)
 		return summary
 
-	def min_price_and_count(self, url_name: str, online_only: bool = False):
-		summary = self.sell_orders_summary(url_name, online_only=online_only)
+	def min_price_and_count(self, url_name: str, online_only: bool = False, mod_rank: Optional[int] = None):
+		summary = self.sell_orders_summary(url_name, online_only=online_only, mod_rank=mod_rank)
 		return summary["min_price"], summary["order_count"]

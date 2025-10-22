@@ -6,12 +6,13 @@ from numbers import Number
 from typing import List, Dict, Any, Optional
 import typer
 import pandas as pd
-from wfmarket.analyzers import build_sets_report, riven_endo_candidates
+from wfmarket.analyzers import build_sets_report, riven_endo_candidates, build_mods_report
 from wfmarket.config import load_config
 
 CONFIG = load_config()
 SETTINGS_SETS = CONFIG.get("sets", {})
 SETTINGS_ENDO = CONFIG.get("endo", {})
+SETTINGS_MODS = CONFIG.get("mods", {})
 DEFAULT_PLATFORM = CONFIG.get("platform", "pc")
 DEFAULT_LANGUAGE = CONFIG.get("language", "en")
 
@@ -59,6 +60,38 @@ UI_STRINGS = {
 			"Difference (24h) shows platinum: parts sum − set price. Positive values mean the parts are more expensive.",
 			"Difference % equals (parts sum / set price − 1).",
 		],
+		"mods_headers": [
+			"Open",
+			"Warframe Market ID",
+			"Mod name",
+			"Rarity",
+			"Max rank",
+			"Endo to max",
+			"Unranked min",
+			"Unranked avg (top-{n})",
+			"Unranked deviation",
+			"Unranked orders",
+			"Maxed min",
+			"Maxed avg (top-{n})",
+			"Maxed deviation",
+			"Maxed orders",
+			"Price diff",
+			"Price diff %",
+			"Endo per platinum diff",
+			"Platinum per Endo",
+		],
+		"mods_notes": [
+			"Unranked columns use sell orders with mod rank 0; maxed columns use the maximum mod rank available.",
+			"Deviation equals half of the spread between the cheapest and the priciest order within the top-{n} selection.",
+			"Endo per platinum diff shows how much Endo is required for each extra platinum earned by ranking the mod.",
+		],
+		"mods_sheet_name": "mods",
+		"mods_rarity_labels": {
+			"common": "Common",
+			"uncommon": "Uncommon",
+			"rare": "Rare",
+			"legendary": "Legendary",
+		},
 		"category_titles": {
 			"warframes": "Warframes",
 			"primary": "Primary weapons",
@@ -112,6 +145,39 @@ UI_STRINGS = {
 			"Разница (24ч) показана в платине: сумма деталей − цена комплекта (положительное значение ⇒ детали дороже).",
 			"Разница % вычисляется как (сумма деталей / цена комплекта − 1).",
 		],
+
+		"mods_headers": [
+			"Открыть",
+			"Warframe Market ID",
+			"Название мода",
+			"Редкость",
+			"Макс. ранг",
+			"Эндо до максимума",
+			"Мин. цена (0 ранг)",
+			"Средняя цена (top-{n}, 0 ранг)",
+			"Отклонение (0 ранг)",
+			"Количество ордеров (0 ранг)",
+			"Мин. цена (макс. ранг)",
+			"Средняя цена (top-{n}, макс. ранг)",
+			"Отклонение (макс. ранг)",
+			"Количество ордеров (макс. ранг)",
+			"Разница в цене",
+			"Разница в цене %",
+			"Эндо / разница в платине",
+			"Платина / эндо",
+		],
+		"mods_notes": [
+			"Столбцы для ранга 0 используют ордера с mod_rank = 0; столбцы для максимального ранга берут ордера с максимальным mod_rank.",
+			"Отклонение равняется половине разброса между минимальной и максимальной ценой внутри выборки top-{n}.",
+			"Эндо / разница в платине показывает, сколько эндо требуется для дополнительной платины после прокачки.",
+		],
+		"mods_sheet_name": "моды",
+		"mods_rarity_labels": {
+			"common": "Обычный",
+			"uncommon": "Необычный",
+			"rare": "Редкий",
+			"legendary": "Легендарный",
+		},
 		"category_titles": {
 			"warframes": "Варфреймы",
 			"primary": "Основное оружие",
@@ -568,6 +634,271 @@ def sets(
 		export_df.to_csv(out, index=False)
 	typer.echo(TEXT["saved"].format(out=out))
 
+
+def _write_mods_excel(
+	df: pd.DataFrame,
+	out_path: str,
+	column_order: List[str],
+	headers: List[str],
+) -> None:
+	import xlsxwriter
+
+	if df.empty:
+		df.to_excel(out_path, index=False)
+		return
+
+	key_header_pairs = list(zip(column_order, headers))
+
+	workbook: xlsxwriter.Workbook
+	with pd.ExcelWriter(out_path, engine="xlsxwriter") as writer:
+		sheet_name = TEXT.get("mods_sheet_name", "mods")
+		df.to_excel(writer, index=False, sheet_name=sheet_name)
+		workbook = writer.book
+		worksheet = writer.sheets[sheet_name]
+
+		header_fmt = workbook.add_format({
+			"bold": True,
+			"bg_color": "#1f4e78",
+			"font_color": "#ffffff",
+			"align": "center",
+			"valign": "vcenter",
+			"text_wrap": True,
+			"bottom": 2,
+		})
+		worksheet.set_row(0, 24, header_fmt)
+
+		link_fmt = workbook.add_format({"font_color": "#1155CC", "underline": 1})
+		number_fmt = workbook.add_format({"num_format": "#,##0.00"})
+		int_fmt = workbook.add_format({"num_format": "#,##0"})
+		percent_fmt = workbook.add_format({"num_format": '0.00"%"'})
+
+		good_fmt = workbook.add_format({"bg_color": "#C6EFCE", "font_color": "#006100"})
+		bad_fmt = workbook.add_format({"bg_color": "#FFC7CE", "font_color": "#9C0006"})
+
+		row_count = len(df)
+		last_row = row_count
+		last_col = len(df.columns) - 1
+
+		worksheet.freeze_panes(1, 2)
+		worksheet.autofilter(0, 0, last_row, last_col)
+		worksheet.hide_gridlines(0)
+
+		width_map = {
+			"link": 9,
+			"url_name": 28,
+			"item_name": 34,
+			"rarity": 14,
+			"max_rank": 10,
+			"endo_to_max": 16,
+			"unranked_min": 14,
+			"unranked_avg": 18,
+			"unranked_error": 16,
+			"unranked_orders": 16,
+			"maxed_min": 14,
+			"maxed_avg": 18,
+			"maxed_error": 16,
+			"maxed_orders": 16,
+			"price_diff": 16,
+			"price_diff_percent": 18,
+			"endo_per_platinum": 20,
+			"platinum_per_endo": 18,
+		}
+
+		currency_columns = {
+			"unranked_min",
+			"unranked_avg",
+			"unranked_error",
+			"maxed_min",
+			"maxed_avg",
+			"maxed_error",
+			"price_diff",
+			"endo_per_platinum",
+			"platinum_per_endo",
+		}
+		integer_columns = {"endo_to_max", "unranked_orders", "maxed_orders", "max_rank"}
+		percent_columns = {"price_diff_percent"}
+
+		for col_idx, (key, _) in enumerate(key_header_pairs):
+			width = width_map.get(key, 14)
+			if key == "link":
+				worksheet.set_column(col_idx, col_idx, width)
+				continue
+			if key in percent_columns:
+				worksheet.set_column(col_idx, col_idx, width, percent_fmt)
+			elif key in integer_columns:
+				worksheet.set_column(col_idx, col_idx, width, int_fmt)
+			elif key in currency_columns:
+				worksheet.set_column(col_idx, col_idx, width, number_fmt)
+			else:
+				worksheet.set_column(col_idx, col_idx, width)
+
+		open_label = TEXT["open_label"]
+		for row_idx, link in enumerate(df.iloc[:, 0], start=1):
+			if isinstance(link, str) and link:
+				worksheet.write_url(row_idx, 0, link, link_fmt, open_label)
+
+		price_diff_idx = column_order.index("price_diff")
+		price_diff_percent_idx = column_order.index("price_diff_percent")
+		endo_per_platinum_idx = column_order.index("endo_per_platinum")
+		platinum_per_endo_idx = column_order.index("platinum_per_endo")
+
+		if row_count > 0:
+			worksheet.conditional_format(
+				1, price_diff_idx, last_row, price_diff_idx,
+				{"type": "cell", "criteria": ">", "value": 0, "format": good_fmt},
+			)
+			worksheet.conditional_format(
+				1, price_diff_idx, last_row, price_diff_idx,
+				{"type": "cell", "criteria": "<", "value": 0, "format": bad_fmt},
+			)
+			worksheet.conditional_format(
+				1, price_diff_percent_idx, last_row, price_diff_percent_idx,
+				{"type": "cell", "criteria": ">", "value": 0, "format": good_fmt},
+			)
+			worksheet.conditional_format(
+				1, price_diff_percent_idx, last_row, price_diff_percent_idx,
+				{"type": "cell", "criteria": "<", "value": 0, "format": bad_fmt},
+			)
+			worksheet.conditional_format(
+				1, platinum_per_endo_idx, last_row, platinum_per_endo_idx,
+				{
+					"type": "3_color_scale",
+					"min_color": "#FFC7CE",
+					"mid_color": "#FFEB9C",
+					"max_color": "#C6EFCE",
+				},
+			)
+			worksheet.conditional_format(
+				1, endo_per_platinum_idx, last_row, endo_per_platinum_idx,
+				{
+					"type": "3_color_scale",
+					"min_color": "#C6EFCE",
+					"mid_color": "#FFEB9C",
+					"max_color": "#FFC7CE",
+				},
+			)
+@app.command()
+def mods(
+	out: str = typer.Option(
+		SETTINGS_MODS.get("out", "mod_prices.xlsx"),
+		"--out",
+		"-o",
+		help="Output file for the mod price comparison report.",
+	),
+	platform: str = typer.Option(
+		DEFAULT_PLATFORM,
+		"--platform",
+		"-p",
+		help="Game platform (pc, ps4, xbox, switch).",
+	),
+	language: str = typer.Option(
+		DEFAULT_LANGUAGE,
+		"--language",
+		"-l",
+		help="Warframe Market language (en, ru, ...).",
+	),
+	only_online: bool = typer.Option(
+		SETTINGS_MODS.get("only_online", False),
+		"--only-online/--include-offline",
+		help="Consider only online/in-game sellers.",
+	),
+	rarities: Optional[List[str]] = typer.Option(
+		None,
+		"--rarity",
+		"-r",
+		help="Filter by mod rarity (repeat to provide several values).",
+	),
+	filter_contains: str = typer.Option(
+		SETTINGS_MODS.get("filter_contains", ""),
+		"--filter",
+		"-f",
+		help="Substring filter applied to mod names/IDs (case-insensitive).",
+	),
+	limit_items: Optional[int] = typer.Option(
+		SETTINGS_MODS.get("limit_items"),
+		"--limit-items",
+		"-n",
+		help="Maximum number of mods to inspect (0 or None removes the limit).",
+	),
+	live_price_top_n: int = typer.Option(
+		SETTINGS_MODS.get("live_price_top_n", 4),
+		"--live-price-top-n",
+		help="Number of live orders to average when comparing prices.",
+	),
+):
+	if live_price_top_n <= 0:
+		raise typer.BadParameter(TEXT["errors"]["live_price_top_n_positive"])
+
+	rarity_values: List[str] = []
+	if rarities:
+		rarity_values = [str(r).strip().lower() for r in rarities if str(r).strip()]
+	else:
+		default_rarities = SETTINGS_MODS.get("rarities") or []
+		rarity_values = [str(r).strip().lower() for r in default_rarities if str(r).strip()]
+	if limit_items is not None and limit_items <= 0:
+		limit_items = None
+
+	df = build_mods_report(
+		platform=platform,
+		language=language,
+		rarity_filter=rarity_values or None,
+		only_online=only_online,
+		top_n=live_price_top_n,
+		filter_contains=filter_contains or None,
+		limit_items=limit_items,
+	)
+	if df.empty:
+		typer.echo(TEXT["no_results"])
+		raise typer.Exit(code=0)
+
+	column_order = [
+		"link",
+		"url_name",
+		"item_name",
+		"rarity",
+		"max_rank",
+		"endo_to_max",
+		"unranked_min",
+		"unranked_avg",
+		"unranked_error",
+		"unranked_orders",
+		"maxed_min",
+		"maxed_avg",
+		"maxed_error",
+		"maxed_orders",
+		"price_diff",
+		"price_diff_percent",
+		"endo_per_platinum",
+		"platinum_per_endo",
+	]
+
+	for column in column_order:
+		if column not in df.columns:
+			df[column] = None
+
+	rarity_labels = TEXT.get("mods_rarity_labels", {})
+	if rarity_labels:
+		def _map_rarity(value: Any) -> Any:
+			if isinstance(value, str):
+				lower = value.lower()
+				if lower in rarity_labels:
+					return rarity_labels[lower]
+				return value.title()
+			return value
+		df["rarity"] = df["rarity"].apply(_map_rarity)
+
+	headers_template = TEXT.get("mods_headers", [])
+	headers = [header.format(n=live_price_top_n) for header in headers_template]
+	rename_map = {key: headers[idx] for idx, key in enumerate(column_order) if idx < len(headers)}
+
+	export_df = df[column_order].rename(columns=rename_map)
+
+	if out.endswith(".xlsx"):
+		_write_mods_excel(export_df, out, column_order, headers)
+	else:
+		export_df.to_csv(out, index=False)
+	typer.echo(TEXT["saved"].format(out=out))
+
 @app.command()
 def endo(
 	out: str = typer.Option(
@@ -629,3 +960,4 @@ def endo(
 
 if __name__ == "__main__":
 	app()
+

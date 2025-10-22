@@ -32,6 +32,14 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 		"min_mod_rank": 8,
 		"limit_items": 300,
 	},
+	"mods": {
+		"out": "mod_prices.xlsx",
+		"only_online": False,
+		"rarities": ["rare", "legendary"],
+		"filter_contains": "",
+		"limit_items": 200,
+		"live_price_top_n": 3,
+	},
 	"cache": {
 		"enabled": True,
 		"directory": "",

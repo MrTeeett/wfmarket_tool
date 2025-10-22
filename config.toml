@@ -2,9 +2,9 @@
 # Allowed platforms: pc, ps4, xbox, switch
 platform = "pc"
 # Warframe Market language (API requests, e.g., en, ru)
-language = "en"
+language = "ru"
 # UI language for CLI output ("en" or "ru")
-ui_language = "en"
+ui_language = "ru"
 
 [limits]
 # Delay between sequential API requests (seconds).
@@ -38,6 +38,20 @@ min_mastery = 8
 min_mod_rank = 8
 # Maximum number of items to inspect. Use 0 or null to disable the limit.
 limit_items = 300
+
+[mods]
+# Output file for the mod price comparison report.
+out = "mod_prices.xlsx"
+# Consider only online/in-game sellers when analysing orders.
+only_online = true
+# Rarity filter applied to mods (e.g., ["rare", "legendary"]). Empty list scans all rarities.
+rarities = ["rare", "legendary"]
+# Substring filter for mod names/IDs. Leave empty to disable.
+filter_contains = ""
+# Maximum number of mods to inspect. Use 0 or null to disable the limit.
+limit_items = 0
+# Number of live orders to average when calculating prices.
+live_price_top_n = 2
 
 # Example rarity/rank → Endo conversion table. Replace with real values if needed.
 [endo_table.common]
