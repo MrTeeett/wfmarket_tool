@@ -1,0 +1,62 @@
+# Default settings for all CLI commands
+# Allowed platforms: pc, ps4, xbox, switch
+platform = "pc"
+# Warframe Market language (API requests, e.g., en, ru)
+language = "en"
+# UI language for CLI output ("en" or "ru")
+ui_language = "en"
+
+[limits]
+# Delay between sequential API requests (seconds).
+# Lower values may result in 429 (rate limit) errors.
+rate_delay = 0.01
+
+[sets]
+# Output file for the sets report (relative or absolute path).
+out = "warframe_market_sets.xlsx"
+# Consider only online/in-game sellers. Set to false to include everyone.
+only_online = true
+# Substring filter applied to item names/URLs. An empty string disables it.
+filter_contains = ""
+# Maximum number of sets to process. Use 0 or null to disable the limit.
+limit_sets = 0
+# Show progress and estimated time remaining.
+progress = true
+# Fetch 24h statistics for parts (slower) or skip them for speed.
+fetch_part_statistics = true
+# Number of live orders to average for the “live” price.
+live_price_top_n = 1
+
+[endo]
+# Output file for the Endo candidates report.
+out = "endo_candidates.xlsx"
+# Consider only online/in-game sellers when scanning mods and rivens.
+only_online = true
+# Minimum mastery rank required for the item.
+min_mastery = 8
+# Minimum mod rank to include (heuristic).
+min_mod_rank = 8
+# Maximum number of items to inspect. Use 0 or null to disable the limit.
+limit_items = 300
+
+# Example rarity/rank → Endo conversion table. Replace with real values if needed.
+[endo_table.common]
+10 = 300
+
+[endo_table.uncommon]
+10 = 600
+
+[endo_table.rare]
+10 = 900
+
+[cache]
+# Enable caching of API responses on disk.
+enabled = true
+# Cache directory. Empty string means ./cache next to the application.
+directory = ""
+# Time-to-live for statistics cache entries (seconds).
+statistics_ttl = 900
+# Time-to-live for orders cache entries (seconds).
+orders_ttl = 300
+# Time-to-live for item_full cache entries (seconds).
+item_ttl = 3600

@@ -1,0 +1,6 @@
+.venv/
+.vscode/
+cache/
+wfmarket/__pycache__/
+wfmarket/analyzers/__pycache__/
+warframe_market_*
