@@ -92,6 +92,12 @@ UI_STRINGS = {
 			"rare": "Rare",
 			"legendary": "Legendary",
 		},
+		"mods_progress": {
+			"label": "Mods",
+			"format": "[{label}] {done}/{total} • {name}",
+			"done_format": "[{label}] {done}/{total} • {status_done}",
+			"status_done": "done",
+		},
 		"category_titles": {
 			"warframes": "Warframes",
 			"primary": "Primary weapons",
@@ -177,6 +183,12 @@ UI_STRINGS = {
 			"uncommon": "Необычный",
 			"rare": "Редкий",
 			"legendary": "Легендарный",
+		},
+		"mods_progress": {
+			"label": "Моды",
+			"format": "[{label}] {done}/{total} • {name}",
+			"done_format": "[{label}] {done}/{total} • {status_done}",
+			"status_done": "готово",
 		},
 		"category_titles": {
 			"warframes": "Варфреймы",
@@ -642,6 +654,7 @@ def _write_mods_excel(
 	headers: List[str],
 ) -> None:
 	import xlsxwriter
+	from xlsxwriter.utility import xl_col_to_name
 
 	if df.empty:
 		df.to_excel(out_path, index=False)
@@ -674,6 +687,14 @@ def _write_mods_excel(
 
 		good_fmt = workbook.add_format({"bg_color": "#C6EFCE", "font_color": "#006100"})
 		bad_fmt = workbook.add_format({"bg_color": "#FFC7CE", "font_color": "#9C0006"})
+		min_column_fmt = workbook.add_format({"bg_color": "#FFF5CC", "num_format": "#,##0.00"})
+		max_column_fmt = workbook.add_format({"bg_color": "#FDE9D9", "num_format": "#,##0.00"})
+		min_price_fmt = workbook.add_format({
+			"bg_color": "#F9CB9C",
+			"font_color": "#7F6000",
+			"bold": True,
+			"num_format": "#,##0.00",
+		})
 
 		row_count = len(df)
 		last_row = row_count
@@ -717,20 +738,26 @@ def _write_mods_excel(
 		}
 		integer_columns = {"endo_to_max", "unranked_orders", "maxed_orders", "max_rank"}
 		percent_columns = {"price_diff_percent"}
+		highlight_columns = {
+			"unranked_min": min_column_fmt,
+			"maxed_min": max_column_fmt,
+		}
 
 		for col_idx, (key, _) in enumerate(key_header_pairs):
 			width = width_map.get(key, 14)
 			if key == "link":
 				worksheet.set_column(col_idx, col_idx, width)
 				continue
-			if key in percent_columns:
-				worksheet.set_column(col_idx, col_idx, width, percent_fmt)
+			column_format = None
+			if key in highlight_columns:
+				column_format = highlight_columns[key]
+			elif key in percent_columns:
+				column_format = percent_fmt
 			elif key in integer_columns:
-				worksheet.set_column(col_idx, col_idx, width, int_fmt)
+				column_format = int_fmt
 			elif key in currency_columns:
-				worksheet.set_column(col_idx, col_idx, width, number_fmt)
-			else:
-				worksheet.set_column(col_idx, col_idx, width)
+				column_format = number_fmt
+			worksheet.set_column(col_idx, col_idx, width, column_format)
 
 		open_label = TEXT["open_label"]
 		for row_idx, link in enumerate(df.iloc[:, 0], start=1):
@@ -741,6 +768,8 @@ def _write_mods_excel(
 		price_diff_percent_idx = column_order.index("price_diff_percent")
 		endo_per_platinum_idx = column_order.index("endo_per_platinum")
 		platinum_per_endo_idx = column_order.index("platinum_per_endo")
+		unranked_min_idx = column_order.index("unranked_min")
+		maxed_min_idx = column_order.index("maxed_min")
 
 		if row_count > 0:
 			worksheet.conditional_format(
@@ -777,6 +806,18 @@ def _write_mods_excel(
 					"max_color": "#FFC7CE",
 				},
 			)
+			min_range_start = 2
+			min_range_end = row_count + 1
+			for col_idx in (unranked_min_idx, maxed_min_idx):
+				col_letter = xl_col_to_name(col_idx)
+				worksheet.conditional_format(
+					1, col_idx, last_row, col_idx,
+					{
+						"type": "formula",
+						"criteria": f"=${col_letter}{min_range_start}=MIN(${col_letter}${min_range_start}:${col_letter}${min_range_end})",
+						"format": min_price_fmt,
+					},
+				)
 @app.command()
 def mods(
 	out: str = typer.Option(
@@ -820,6 +861,11 @@ def mods(
 		"-n",
 		help="Maximum number of mods to inspect (0 or None removes the limit).",
 	),
+	progress: bool = typer.Option(
+		SETTINGS_MODS.get("progress", True),
+		"--progress/--no-progress",
+		help="Display progress while fetching mod prices.",
+	),
 	live_price_top_n: int = typer.Option(
 		SETTINGS_MODS.get("live_price_top_n", 4),
 		"--live-price-top-n",
@@ -838,6 +884,37 @@ def mods(
 	if limit_items is not None and limit_items <= 0:
 		limit_items = None
 
+	progress_callback = None
+	if progress:
+		progress_text = TEXT.get("mods_progress", {})
+		label = progress_text.get("label", "Mods")
+		format_text = progress_text.get("format", "[{label}] {done}/{total} • {name}")
+		done_text = progress_text.get("done_format", "[{label}] {done}/{total} • {status_done}")
+		status_done = progress_text.get("status_done", "done")
+		last_state = {"time": 0.0, "done": 0}
+
+		def _mods_progress(done: int, total: int, name: str) -> None:
+			if total <= 0 or done < 0:
+				return
+			now = time.perf_counter()
+			if done >= total:
+				if last_state["done"] >= total:
+					return
+				message = done_text.format(label=label, done=total, total=total, status_done=status_done)
+			else:
+				if done == 0:
+					return
+				if done == last_state["done"] and now - last_state["time"] < 0.5:
+					return
+				if now - last_state["time"] < 0.5:
+					return
+				message = format_text.format(label=label, done=done, total=total, name=name or "")
+			last_state["time"] = now
+			last_state["done"] = done if done <= total else total
+			typer.echo(message, err=True)
+
+		progress_callback = _mods_progress
+
 	df = build_mods_report(
 		platform=platform,
 		language=language,
@@ -846,6 +923,7 @@ def mods(
 		top_n=live_price_top_n,
 		filter_contains=filter_contains or None,
 		limit_items=limit_items,
+		progress_callback=progress_callback,
 	)
 	if df.empty:
 		typer.echo(TEXT["no_results"])
@@ -960,4 +1038,3 @@ def endo(
 
 if __name__ == "__main__":
 	app()
-

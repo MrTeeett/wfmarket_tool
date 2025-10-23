@@ -4,7 +4,7 @@ Reporting utilities for tracking Warframe mod prices (unranked vs fully ranked).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 import pandas as pd
 
@@ -78,6 +78,7 @@ def build_mods_report(
 	top_n: int = 4,
 	filter_contains: Optional[str] = None,
 	limit_items: Optional[int] = None,
+	progress_callback: Optional[Callable[[int, int, str], None]] = None,
 ) -> pd.DataFrame:
 	client = WFMClient(platform=platform, language=language)
 	items = client.list_items()
@@ -97,12 +98,16 @@ def build_mods_report(
 		seen.add(url_name)
 	if limit_items:
 		candidates = candidates[:limit_items]
+	total_candidates = len(candidates)
 
 	rows: List[Dict[str, object]] = []
-	for url_name, fallback_name in candidates:
+	for idx, (url_name, fallback_name) in enumerate(candidates, start=1):
+		log_name = fallback_name or url_name
 		try:
 			item_full = client.item_full(url_name)
 		except Exception:
+			if progress_callback:
+				progress_callback(idx, total_candidates, log_name)
 			continue
 		item_details = None
 		for component in item_full.get("items_in_set") or []:
@@ -110,12 +115,18 @@ def build_mods_report(
 				item_details = component
 				break
 		if not item_details:
+			if progress_callback:
+				progress_callback(idx, total_candidates, log_name)
 			continue
 		tags = item_details.get("tags") or []
 		if "mod" not in tags:
+			if progress_callback:
+				progress_callback(idx, total_candidates, log_name)
 			continue
 		rarity = (item_details.get("rarity") or "").lower()
 		if target_rarities and rarity not in target_rarities:
+			if progress_callback:
+				progress_callback(idx, total_candidates, log_name)
 			continue
 		max_rank = item_details.get("mod_max_rank") or 0
 		try:
@@ -129,14 +140,19 @@ def build_mods_report(
 				display_name = lang_block.get("item_name")
 		if not display_name:
 			display_name = item_details.get("en", {}).get("item_name") or fallback_name or url_name.replace("_", " ").title()
+		log_name = display_name
 
 		try:
 			orders = client.sell_orders(url_name, online_only=only_online)
 		except Exception:
+			if progress_callback:
+				progress_callback(idx, total_candidates, log_name)
 			continue
 		summary_rank0 = _summarize_orders(orders, target_rank=0, top_n=top_n)
 		summary_rank_max = _summarize_orders(orders, target_rank=max_rank if max_rank > 0 else 0, top_n=top_n)
 		if summary_rank0.order_count == 0 and summary_rank_max.order_count == 0:
+			if progress_callback:
+				progress_callback(idx, total_candidates, log_name)
 			continue
 
 		endo_to_max = _endo_cost_to_max(rarity, max_rank)
@@ -174,6 +190,8 @@ def build_mods_report(
 			"endo_per_platinum": endo_per_platinum,
 			"platinum_per_endo": platinum_per_endo,
 		})
+		if progress_callback:
+			progress_callback(idx, total_candidates, log_name)
 
 	if not rows:
 		return pd.DataFrame()

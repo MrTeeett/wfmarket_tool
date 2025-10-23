@@ -38,6 +38,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 		"rarities": ["rare", "legendary"],
 		"filter_contains": "",
 		"limit_items": 200,
+		"progress": True,
 		"live_price_top_n": 3,
 	},
 	"cache": {

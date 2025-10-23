@@ -44,14 +44,16 @@ limit_items = 300
 out = "mod_prices.xlsx"
 # Consider only online/in-game sellers when analysing orders.
 only_online = true
-# Rarity filter applied to mods (e.g., ["rare", "legendary"]). Empty list scans all rarities.
-rarities = ["rare", "legendary"]
+# Rarity filter applied to mods (e.g., ["common", "uncommon", "rare", "legendary"]). Empty list scans all rarities.
+rarities = ["legendary"]
 # Substring filter for mod names/IDs. Leave empty to disable.
 filter_contains = ""
 # Maximum number of mods to inspect. Use 0 or null to disable the limit.
 limit_items = 0
+# Show progress while fetching mod prices.
+progress = true
 # Number of live orders to average when calculating prices.
-live_price_top_n = 2
+live_price_top_n = 1
 
 # Example rarity/rank → Endo conversion table. Replace with real values if needed.
 [endo_table.common]

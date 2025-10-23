@@ -4,3 +4,5 @@ cache/
 wfmarket/__pycache__/
 wfmarket/analyzers/__pycache__/
 warframe_market_*
+mod_prices*
+~$*
