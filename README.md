@@ -20,7 +20,15 @@ pip install -r requirements.txt
 python cli.py sets --out warframe_market_sets.xlsx
 python cli.py endo --out endo_candidates.xlsx
 python cli.py mods --out mod_prices.xlsx
+python gui.py  # launches the Qt6 desktop interface
 ```
+
+The GUI mirrors the CLI features while adding:
+
+- Live language switching between English and Russian.
+- Persistent configuration for the UI language, rate delay, and default export paths.
+- A unified progress bar and log console while reports are being generated.
+- A "Generate all" workflow that writes the sets, mods, and Endo data into a single workbook with dedicated sheets.
 
 ## Configuration
 
@@ -64,8 +72,23 @@ The sets report (`cli.py sets`) provides:
 - `wfmarket/analyzers/sets_vs_parts.py` - logic behind the sets-versus-parts report.
 - `wfmarket/analyzers/riven_endo_hunt.py` - heuristic scan for profitable Endo dissolves.
 - `wfmarket/analyzers/mods_price_tracker.py` - mod price comparison and Endo efficiency calculations.
+- `wfmarket/gui_app.py` - PyQt6 desktop application with combined report generation and settings persistence.
 - `cli.py` - Typer-based command-line interface.
 - `config.toml` - user configuration and optional Endo conversion tables.
+
+## Building standalone binaries
+
+PyInstaller scripts are provided for both Linux and Windows:
+
+```bash
+./scripts/build_linux.sh
+```
+
+```bat
+scripts\build_windows.bat
+```
+
+Each script produces `wfmarket-cli` and `wfmarket-gui` single-file executables in the `dist/` directory.
 
 ## Notes
 

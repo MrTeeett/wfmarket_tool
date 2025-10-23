@@ -45,9 +45,9 @@ out = "mod_prices.xlsx"
 # Consider only online/in-game sellers when analysing orders.
 only_online = true
 # Rarity filter applied to mods (e.g., ["common", "uncommon", "rare", "legendary"]). Empty list scans all rarities.
-rarities = ["legendary"]
+rarities = ["rare", "legendary"]
 # Substring filter for mod names/IDs. Leave empty to disable.
-filter_contains = ""
+filter_contains = "prime"
 # Maximum number of mods to inspect. Use 0 or null to disable the limit.
 limit_items = 0
 # Show progress while fetching mod prices.

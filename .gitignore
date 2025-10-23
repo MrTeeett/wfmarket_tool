@@ -1,8 +1,12 @@
 .venv/
 .vscode/
 cache/
+build/
+dist/
+__pycache__/
 wfmarket/__pycache__/
 wfmarket/analyzers/__pycache__/
 warframe_market_*
 mod_prices*
 ~$*
+*.spec
